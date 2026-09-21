@@ -13,3 +13,4 @@ wandb/
 data/processed/
 data/raw/*.html
 .DS_Store/
+.pytest_cache/
