@@ -1,0 +1,40 @@
+# Tenant config: Hostinger (company #1 - the vertical slice we build first)
+tenant:
+  id: hostinger
+  name: Hostinger
+
+sources:
+  - type: faq_json            # Q/A pairs we already have
+    path: data/raw/hostinger_dataset.json
+  - type: url_list            # full help-center articles (added in Phase 1)
+    path: data/raw/hostinger_urls.txt
+
+chunking:
+  strategy: recursive         # fixed | semantic | recursive  (we will compare)
+  size: 512
+  overlap: 50
+
+retrieval:
+  top_k: 50                   # ANN recall
+  rerank_top_n: 5             # after cross-encoder rerank
+  hybrid: true                # dense + BM25
+
+models:
+  generator: ollama/llama3.2          # local, free (RAG answers)
+  judge: ollama/llama3.2              # local, free (faithfulness judging)
+  cost_candidates:                     # priced via OpenRouter for the cost engine
+    - openai/gpt-4o-mini
+    - anthropic/claude-haiku
+    - google/gemini-flash
+    - meta-llama/llama-3.3-70b
+    - qwen/qwen-2.5-72b
+
+finetune:
+  base_model: meta-llama/Llama-3.2-3B
+  method: qlora
+  rank: 16
+
+volume:
+  monthly_queries: 100000    # assumption for the cost report
+
+quality_bar: 0.90            # cheapest model scoring >= this wins
