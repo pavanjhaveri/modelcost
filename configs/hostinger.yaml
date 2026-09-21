@@ -36,5 +36,7 @@ finetune:
 
 volume:
   monthly_queries: 100000    # assumption for the cost report
+  avg_input_tokens: 800      # assumption: measured mean prompt tokens per query
+  avg_output_tokens: 300     # assumption: measured mean completion tokens per query
 
 quality_bar: 0.90            # cheapest model scoring >= this wins
