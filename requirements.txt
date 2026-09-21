@@ -1,0 +1,39 @@
+# ModelCost - requirements (all free / open-source)
+# Install:  python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# ---------- ingestion ----------
+requests
+beautifulsoup4
+trafilatura          # boilerplate-free article text extraction
+pyyaml               # per-company tenant configs
+tqdm
+
+# ---------- RAG ----------
+sentence-transformers  # local embeddings (MiniLM, bge, e5 ...)
+faiss-cpu              # local vector search, one index per tenant
+datasets               # HF datasets: version your QA pairs
+
+# ---------- fine-tuning (also installed on Kaggle) ----------
+transformers
+peft                   # LoRA / QLoRA
+trl                    # SFTTrainer
+accelerate
+bitsandbytes           # 4-bit quantization for QLoRA
+# NOTE: if bitsandbytes fails to install on your laptop, skip it.
+# It is only needed on the Kaggle GPU, where it installs cleanly.
+
+# ---------- evals & testing ----------
+scikit-learn           # precision/recall/F1, ROC-AUC ...
+rouge-score
+bert-score
+pytest
+
+# ---------- demo ----------
+gradio                 # HF Spaces demo UI
+
+# ---------- experimentation ----------
+jupyter
+ipykernel
+pandas
+matplotlib
+# torch is pulled in automatically by transformers / sentence-transformers
