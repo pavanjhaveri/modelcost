@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.ipynb_checkpoints/
+*.egg-info/
+.eggs/
+.env
+wandb/
+*.faiss
+*.bin
+data/processed/
+data/raw/*.html
+.DS_Store/
