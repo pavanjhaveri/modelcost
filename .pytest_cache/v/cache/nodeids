@@ -1,0 +1,13 @@
+[
+  "tests/test_app.py::test_analyze_ranks_cheapest_first",
+  "tests/test_app.py::test_fuzzy_candidate_matching",
+  "tests/test_app.py::test_hostinger_config_loads",
+  "tests/test_app.py::test_unknown_company_lists_available",
+  "tests/test_app.py::test_unmatched_candidate_reported_not_crashed",
+  "tests/test_calculator.py::test_cost_per_request_math",
+  "tests/test_calculator.py::test_monthly_cost_scales_with_volume",
+  "tests/test_calculator.py::test_ranked_entries_carry_all_cost_fields",
+  "tests/test_calculator.py::test_ranking_flips_with_workload_shape",
+  "tests/test_pricing.py::test_free_malformed_and_unpriced_models_are_skipped",
+  "tests/test_pricing.py::test_per_token_strings_become_per_million_floats"
+]
