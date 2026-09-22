@@ -1,10 +1,16 @@
 """Build the GitHub Pages web app: docs/index.html (single self-contained file).
 
 Reads tenant configs from configs/*.yaml, embeds them plus a price snapshot,
-and emits a page that fetches LIVE OpenRouter prices in the browser
-(CORS: Access-Control-Allow-Origin: *), falling back to the snapshot.
+and emits a page that:
+  1. fetches the tenant's eval report (docs/reports/<company>.json) —
+     accuracy + measured tokens per model, produced by
+     `python -m modelcost.eval.runner --tenant <company>`;
+  2. fetches LIVE OpenRouter prices in the browser
+     (CORS: Access-Control-Allow-Origin: *), falling back to the snapshot;
+  3. ranks models by monthly cost and recommends the cheapest one that
+     meets the tenant's quality bar.
 
-Usage:  PYTHONPATH=src /tmp/mc-venv/bin/python webapp/build.py
+Usage:  PYTHONPATH=src .venv/bin/python webapp/build.py
 """
 import json
 from datetime import datetime, timezone
@@ -24,14 +30,7 @@ def load_tenants():
     for path in sorted(CONFIGS.glob("*.yaml")):
         cfg = yaml.safe_load(path.read_text())
         tenant = cfg.get("tenant", {}) or {}
-        volume = cfg.get("volume", {}) or {}
-        tenants[path.stem] = {
-            "name": tenant.get("name", path.stem),
-            "monthly_queries": int(volume.get("monthly_queries") or 0),
-            "avg_in": int(volume.get("avg_input_tokens") or 800),
-            "avg_out": int(volume.get("avg_output_tokens") or 300),
-            "candidates": (cfg.get("models") or {}).get("cost_candidates") or [],
-        }
+        tenants[path.stem] = {"name": tenant.get("name", path.stem)}
     return tenants
 
 
@@ -64,7 +63,7 @@ HTML = """<!DOCTYPE html>
 <style>
   :root { color-scheme: dark; }
   body { font-family: system-ui, -apple-system, sans-serif; background: #0f1115;
-         color: #e8eaf0; max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+         color: #e8eaf0; max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
   h1 { font-size: 28px; margin: 0 0 4px; }
   .sub { color: #9aa0ae; margin-bottom: 24px; }
   .card { background: #171a21; border: 1px solid #262b36; border-radius: 12px;
@@ -72,7 +71,6 @@ HTML = """<!DOCTYPE html>
   label { display: block; font-size: 13px; color: #9aa0ae; margin: 12px 0 4px; }
   input { width: 100%; box-sizing: border-box; padding: 10px 12px; font-size: 16px;
           background: #0f1115; border: 1px solid #2e3440; border-radius: 8px; color: #fff; }
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   button { margin-top: 16px; padding: 12px 24px; font-size: 16px; font-weight: 600;
            background: #4f7cff; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
   button:hover { background: #3d68e8; }
@@ -86,26 +84,27 @@ HTML = """<!DOCTYPE html>
   th { color: #9aa0ae; font-weight: 600; font-size: 13px; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   th.num { text-align: right; }
-  tr:first-child td { color: #7ee2a8; font-weight: 600; }
+  tr.winner td { color: #7ee2a8; font-weight: 600; }
+  tr.failed td.acc { color: #ff8a8a; }
+  td.acc { font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px;
+           border-radius: 20px; margin-left: 8px; vertical-align: middle; }
+  .badge.ok { background: #1d3a28; color: #7ee2a8; }
+  .badge.no { background: #3a1d1d; color: #ff8a8a; }
   .src { margin-top: 24px; font-size: 13px; color: #9aa0ae; }
   .hidden { display: none; }
 </style>
 </head>
 <body>
 <h1>ModelCost</h1>
-<div class="sub">Cheapest LLM for a company's workload — priced live from OpenRouter.</div>
+<div class="sub">Cheapest LLM for a company's workload — accuracy measured on real
+FAQ questions, prices live from OpenRouter.</div>
 
 <div class="card">
   <label for="company">Company name</label>
   <input id="company" list="tenants" placeholder="hostinger" value="hostinger" autocomplete="off">
   <datalist id="tenants">__DATALIST__</datalist>
-  <div class="row">
-    <div><label for="avgIn">Avg input tokens / request</label>
-      <input id="avgIn" type="number" min="1" value="800"></div>
-    <div><label for="avgOut">Avg output tokens / request</label>
-      <input id="avgOut" type="number" min="1" value="300"></div>
-  </div>
-  <button id="go">Calculate cheapest models</button>
+  <button id="go">Run cost analysis</button>
   <div id="err" class="error"></div>
 </div>
 
@@ -113,8 +112,8 @@ HTML = """<!DOCTYPE html>
   <div id="headline"></div>
   <div id="summary" class="meta"></div>
   <table>
-    <thead><tr><th>#</th><th>Model</th><th class="num">$/request</th>
-    <th class="num">$/day</th><th class="num">$/month</th></tr></thead>
+    <thead><tr><th>#</th><th>Model</th><th class="num">Accuracy</th>
+    <th class="num">Tokens in/out</th><th class="num">$/month</th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
   <div id="notes" class="meta"></div>
@@ -189,56 +188,73 @@ document.getElementById("go").addEventListener("click", async () => {
     err.textContent = "Unknown company '" + key + "'. Available: " + avail + ".";
     return;
   }
-  let avgIn = parseInt(document.getElementById("avgIn").value, 10) || t.avg_in;
-  let avgOut = parseInt(document.getElementById("avgOut").value, 10) || t.avg_out;
-  if (document.getElementById("avgIn").value.trim() === "") {
-    document.getElementById("avgIn").value = t.avg_in; avgIn = t.avg_in; }
-  if (document.getElementById("avgOut").value.trim() === "") {
-    document.getElementById("avgOut").value = t.avg_out; avgOut = t.avg_out; }
-  btn.disabled = true; btn.textContent = "Fetching prices…";
+  btn.disabled = true; btn.textContent = "Loading eval report…";
+  let report;
+  try {
+    const r = await fetch("reports/" + key + ".json");
+    if (!r.ok) throw new Error("no report");
+    report = await r.json();
+  } catch(e){
+    err.textContent = "No eval report yet for '" + key + "'. Reports are produced by " +
+      "running the FAQ questions against the candidate models: " +
+      "python -m modelcost.eval.runner --tenant " + key;
+    btn.disabled = false; btn.textContent = "Run cost analysis";
+    return;
+  }
+  btn.textContent = "Fetching prices…";
   try {
     const catalog = await getCatalog();
-    const rpd = Math.floor(t.monthly_queries / 30);
-    const priced = [], missing = [];
-    for (const c of t.candidates){
-      const m = matchCandidate(catalog, c);
-      if (m) priced.push(m); else missing.push(c);
+    const bar = report.quality_bar || 0.9;
+    const rows = [];
+    const missing = [];
+    for (const m of report.models){
+      if (!m.resolved_id){ missing.push(m.candidate + " (not in catalog)"); continue; }
+      const price = matchCandidate(catalog, m.resolved_id);
+      if (!price){ missing.push(m.resolved_id); continue; }
+      const perReq = (m.avg_input_tokens * price.input_per_1m +
+                      m.avg_output_tokens * price.output_per_1m) / 1e6;
+      const month = perReq * report.monthly_queries;
+      rows.push({id: m.resolved_id, accuracy: m.accuracy,
+                 inTok: m.avg_input_tokens, outTok: m.avg_output_tokens,
+                 perReq, month, ok: m.accuracy >= bar});
     }
-    const ranked = priced.map(m => {
-      const perReq = (avgIn * m.input_per_1m + avgOut * m.output_per_1m) / 1e6;
-      return {id: m.id, perReq, day: perReq * rpd, month: perReq * rpd * 30};
-    }).sort((a,b) => a.month - b.month);
+    rows.sort((a,b) => a.month - b.month);
+    const winner = rows.find(r => r.ok) || null;
 
     const box = document.getElementById("result");
     box.classList.remove("hidden");
-    document.getElementById("headline").innerHTML = ranked.length
-      ? "Cheapest for " + t.name + ": <code>" + ranked[0].id + "</code> at <b>" +
-        fmt(ranked[0].month, 2) + "/month</b>"
-      : "No priced candidates found.";
+    document.getElementById("headline").innerHTML = winner
+      ? "Cheapest for " + report.company + " at " +
+        Math.round(bar*100) + "% quality bar: <code>" + winner.id +
+        "</code> at <b>" + fmt(winner.month, 2) + "/month</b>"
+      : "No model met the " + Math.round(bar*100) + "% quality bar.";
     document.getElementById("summary").textContent =
-      "Workload: " + t.monthly_queries.toLocaleString() + " queries/month (" +
-      rpd.toLocaleString() + "/day), " + avgIn + " input / " + avgOut +
-      " output tokens per request.";
-    document.getElementById("rows").innerHTML = ranked.map((r,i) =>
-      "<tr><td>" + (i+1) + "</td><td>" + r.id + "</td><td class='num'>" +
-      fmt(r.perReq,5) + "</td><td class='num'>" + fmt(r.day,2) +
-      "</td><td class='num'>" + fmt(r.month,2) + "</td></tr>").join("");
+      report.company + ": " + report.monthly_queries.toLocaleString() +
+      " queries/month. Accuracy measured on " + report.n_questions +
+      " real FAQ questions per model (report " + report.generated_at + "). " +
+      "Token counts are measured from those runs — not assumed.";
+    document.getElementById("rows").innerHTML = rows.map((r,i) =>
+      "<tr class='" + (winner && r.id === winner.id ? "winner" : (r.ok ? "" : "failed")) +
+      "'><td>" + (i+1) + "</td><td>" + r.id +
+      (winner && r.id === winner.id ? "<span class='badge ok'>RECOMMENDED</span>"
+        : (r.ok ? "" : "<span class='badge no'>BELOW BAR</span>")) +
+      "</td><td class='num acc'>" + (r.accuracy*100).toFixed(1) + "%</td>" +
+      "<td class='num'>" + Math.round(r.inTok) + " / " + Math.round(r.outTok) + "</td>" +
+      "<td class='num'>" + fmt(r.month, 2) + "</td></tr>").join("");
+    const evalCost = report.models.reduce((s,m) => s + (m.eval_cost_usd || 0), 0);
     document.getElementById("notes").textContent =
-      missing.length ? "Not in live price catalog: " + missing.join(", ") : "";
+      (missing.length ? "Not in live price catalog: " + missing.join(", ") + ". " : "") +
+      "Running this eval cost " + fmt(evalCost, 4) + " in API usage.";
     box.scrollIntoView({behavior: "smooth", block: "nearest"});
   } finally {
-    btn.disabled = false; btn.textContent = "Calculate cheapest models";
+    btn.disabled = false; btn.textContent = "Run cost analysis";
   }
-});
-document.getElementById("company").addEventListener("change", e => {
-  const t = TENANTS[e.target.value.trim().toLowerCase()];
-  if (t){ document.getElementById("avgIn").value = t.avg_in;
-          document.getElementById("avgOut").value = t.avg_out; }
 });
 </script>
 </body>
 </html>
 """
+
 
 def main():
     tenants = load_tenants()
@@ -248,16 +264,18 @@ def main():
         print(f"live snapshot: {len(models)} models")
     except Exception as e:
         print(f"live fetch failed ({e}); embedding empty snapshot")
-        models, as_of = [], "unavailable"
-    datalist = "".join(f'<option value="{tid}">' for tid in tenants)
-    html = (HTML
-            .replace("__DATALIST__", datalist)
-            .replace("__TENANTS_JSON__", json.dumps(tenants))
-            .replace("__SNAPSHOT_DATE__", as_of)
-            .replace("__SNAPSHOT_JSON__", json.dumps(models)))
-    OUT.parent.mkdir(exist_ok=True)
+        models, as_of = [], "never"
+
+    datalist = "".join(
+        f'<option value="{k}">{v["name"]}</option>' for k, v in tenants.items()
+    )
+    html = HTML.replace("__DATALIST__", datalist)
+    html = html.replace("__TENANTS_JSON__", json.dumps(tenants))
+    html = html.replace("__SNAPSHOT_DATE__", as_of)
+    html = html.replace("__SNAPSHOT_JSON__", json.dumps(models))
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(html)
-    print(f"wrote {OUT} ({len(html)//1024} KB), tenants: {list(tenants)}")
+    print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)")
 
 
 if __name__ == "__main__":
