@@ -15,6 +15,7 @@ Authorization header and is swapped for the real key at egress.
 """
 import argparse
 import json
+import re
 import sys
 import time
 import urllib.request
@@ -45,12 +46,43 @@ def load_questions(tenant_id):
     ]
 
 
+STOPWORDS = {
+    "a", "an", "the", "at", "to", "of", "for", "with", "on", "in", "is",
+    "are", "be", "and", "or", "it", "its", "your", "you", "by", "as",
+    "from", "that", "this", "will", "if", "do", "does",
+}
+
+
+def _stem(word):
+    for suffix in ("ational", "tional", "ing", "ed", "ly", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)]
+    return word
+
+
+def _fact_words(fact):
+    return [
+        w for w in re.findall(r"[a-z0-9]+", fact.lower())
+        if w not in STOPWORDS
+    ]
+
+
 def score_answer(answer, key_facts):
-    """Fraction of key facts mentioned (case-insensitive substring)."""
+    """Fraction of key facts covered.
+
+    A fact counts as covered when every significant word in it appears in
+    the answer (word-boundary, stemmed, case-insensitive) — so "installed
+    automatically" and "automatic installation" both satisfy the fact
+    "automatically installed". Still deterministic, no judge model needed.
+    """
     if not key_facts:
         return 1.0
     text = (answer or "").lower()
-    hits = sum(1 for f in key_facts if f.lower() in text)
+    hits = 0
+    for fact in key_facts:
+        words = _fact_words(fact)
+        if words and all(re.search(r"\b" + re.escape(_stem(w)), text) for w in words):
+            hits += 1
     return hits / len(key_facts)
 
 
@@ -98,13 +130,14 @@ def evaluate_tenant(tenant_id, chat_fn=None, max_questions=None, price_catalog=N
     company = (cfg.get("tenant") or {}).get("name", tenant_id)
     quality_bar = float((cfg.get("quality_bar") or 0.90))
     candidates = (cfg.get("models") or {}).get("cost_candidates") or []
+    monthly_queries = int((cfg.get("volume") or {}).get("monthly_queries") or 100000)
     system = (f"You are a helpful customer support agent for {company}. "
               f"Answer the customer's question concisely and accurately.")
 
     call = chat_fn or (lambda m, s, u: (*chat(m, s, u), None))
     models_report = []
     for cand in candidates:
-        resolved = match_candidate(catalog, cand)
+        resolved = match_candidate(catalog, cand, callable_only=True)
         if resolved is None:
             models_report.append({"candidate": cand, "resolved_id": None,
                                   "error": "not in price catalog"})
@@ -149,6 +182,7 @@ def evaluate_tenant(tenant_id, chat_fn=None, max_questions=None, price_catalog=N
         "company": company,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "n_questions": len(questions),
+        "monthly_queries": monthly_queries,
         "quality_bar": quality_bar,
         "models": models_report,
     }
