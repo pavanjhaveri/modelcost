@@ -46,7 +46,7 @@ def _is_subsequence(needle, haystack):
     return all(any(tok == h for h in it) for tok in needle)
 
 
-def match_candidate(catalog, candidate_id):
+def match_candidate(catalog, candidate_id, callable_only=False):
     """Map a config model id to a live catalog entry.
 
     Exact match first; otherwise token-subsequence match on the model name
@@ -56,10 +56,14 @@ def match_candidate(catalog, candidate_id):
     """
     for m in catalog:
         if m["id"] == candidate_id:
+            if callable_only and m["id"].endswith(":batch"):
+                break  # exact id isn't callable; fall through to fuzzy match
             return m
     provider, _, name = candidate_id.partition("/")
     needle = _tokens(name or candidate_id)
     hits = [m for m in catalog if _is_subsequence(needle, _tokens(m["id"]))]
+    if callable_only:
+        hits = [m for m in hits if not m["id"].endswith(":batch")]
     if not hits:
         return None
     same_provider = [m for m in hits if m["id"].startswith(provider + "/")]
