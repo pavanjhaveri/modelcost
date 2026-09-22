@@ -1,0 +1,65 @@
+{
+  "tenant": "hostinger",
+  "company": "Hostinger",
+  "generated_at": "2026-09-21 23:59 UTC",
+  "n_questions": 16,
+  "monthly_queries": 100000,
+  "quality_bar": 0.9,
+  "models": [
+    {
+      "candidate": "openai/gpt-4o-mini",
+      "resolved_id": "openai/gpt-4o-mini",
+      "n_answered": 16,
+      "n_errors": 0,
+      "accuracy": 0.3656,
+      "avg_input_tokens": 47.3,
+      "avg_output_tokens": 143.6,
+      "avg_latency_s": 2.66,
+      "eval_cost_usd": 0.0015
+    },
+    {
+      "candidate": "anthropic/claude-haiku",
+      "resolved_id": "anthropic/claude-3-haiku",
+      "n_answered": 16,
+      "n_errors": 0,
+      "accuracy": 0.2313,
+      "avg_input_tokens": 47.2,
+      "avg_output_tokens": 189.5,
+      "avg_latency_s": 2.34,
+      "eval_cost_usd": 0.004
+    },
+    {
+      "candidate": "google/gemini-flash",
+      "resolved_id": "google/gemini-2.5-flash-lite",
+      "n_answered": 16,
+      "n_errors": 0,
+      "accuracy": 0.2771,
+      "avg_input_tokens": 36.5,
+      "avg_output_tokens": 157.1,
+      "avg_latency_s": 1.34,
+      "eval_cost_usd": 0.0011
+    },
+    {
+      "candidate": "meta-llama/llama-3.3-70b",
+      "resolved_id": "meta-llama/llama-3.3-70b-instruct",
+      "n_answered": 16,
+      "n_errors": 0,
+      "accuracy": 0.2906,
+      "avg_input_tokens": 54.0,
+      "avg_output_tokens": 115.4,
+      "avg_latency_s": 4.75,
+      "eval_cost_usd": 0.0007
+    },
+    {
+      "candidate": "qwen/qwen-2.5-72b",
+      "resolved_id": "qwen/qwen-2.5-72b-instruct",
+      "n_answered": 16,
+      "n_errors": 0,
+      "accuracy": 0.2917,
+      "avg_input_tokens": 50.4,
+      "avg_output_tokens": 151.8,
+      "avg_latency_s": 4.67,
+      "eval_cost_usd": 0.0013
+    }
+  ]
+}
